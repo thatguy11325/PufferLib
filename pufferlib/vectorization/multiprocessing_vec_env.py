@@ -26,6 +26,8 @@ from pufferlib.vectorization.vec_env import (
     aggregate_profiles,
 )
 
+import msgpack
+
 def init(self: object = None,
         env_creator: callable = None,
         env_args: list = [],
@@ -159,7 +161,7 @@ def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
             terminals_arr[:] = done.ravel()
             truncated_arr[:] = truncated.ravel()
 
-        send_pipe.send(info)
+        send_pipe.send_bytes(msgpack.dumps(info))
 
 def recv(state):
     recv_precheck(state)
@@ -173,7 +175,7 @@ def recv(state):
                 env_id = state.recv_pipes.index(response_pipe)
 
                 if response_pipe.poll():  # Check if data is available
-                    info = response_pipe.recv()
+                    info = msgpack.loads(response_pipe.recv_bytes())
                     o, r, d, t = _unpack_shared_mem(
                         state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
                     o = o.reshape(
@@ -188,7 +190,7 @@ def recv(state):
     else:
         for env_id in range(state.workers_per_batch):
             response_pipe = state.recv_pipes[env_id]
-            info = response_pipe.recv()
+            info = msgpack.loads(response_pipe.recv_bytes())
             o, r, d, t = _unpack_shared_mem(
                 state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
             o = o.reshape(
