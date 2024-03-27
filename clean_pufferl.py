@@ -104,6 +104,7 @@ def init(
             envs_per_worker=config.envs_per_worker,
             envs_per_batch=config.envs_per_batch,
             env_pool=config.env_pool,
+            
         )
 
     obs_shape = pool.single_observation_space.shape
@@ -440,7 +441,7 @@ def train(data):
     # Optimizing the policy and value network
     train_time = time.time()
     pg_losses, entropy_losses, v_losses, clipfracs, old_kls, kls = [], [], [], [], [], []
-    mb_obs_buffer = torch.zeros_like(b_obs[0], pin_memory=True)
+    mb_obs_buffer = torch.zeros_like(b_obs[0], pin_memory=data.device == "cuda")
 
     for epoch in range(config.update_epochs):
         lstm_state = None

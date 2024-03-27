@@ -218,12 +218,13 @@ if __name__ == '__main__':
     elif args.track:
         args.exp_name = init_wandb(args, env_module).id
     elif args.baseline:
-        args.track = True
+        # args.track = True
+        args.track = False
         version = '.'.join(pufferlib.__version__.split('.')[:2])
         args.exp_name = f'puf-{version}-{args.config}'
         args.wandb_group = f'puf-{version}-baseline'
         shutil.rmtree(f'experiments/{args.exp_name}', ignore_errors=True)
-        run = init_wandb(args, env_module, name=args.exp_name, resume=False)
+        # run = init_wandb(args, env_module, name=args.exp_name, resume=False)
         if args.mode == 'evaluate':
             model_name = f'puf-{version}-{args.config}_model:latest'
             artifact = run.use_artifact(model_name)
