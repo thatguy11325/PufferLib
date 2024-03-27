@@ -26,6 +26,7 @@ from pufferlib.vectorization.vec_env import (
     split_actions,
     aggregate_profiles,
 )
+import msgpack
 
 
 def init(self: object = None,
@@ -120,9 +121,12 @@ def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
         shared_mem, agents_per_env * envs_per_worker)
 
     while True:
-        request, args, kwargs = recv_pipe.recv()
-        func = getattr(envs, request)
-        response = func(*args, **kwargs)
+        request, args, kwargs = msgpack.loads(recv_pipe.recv_bytes())
+        if request == "step":
+            response = envs.step(np.array(args[0]))
+        else:
+            func = getattr(envs, request)
+            response = func(*args, **kwargs)
         info = {}
 
         # TODO: Handle put/get
@@ -136,7 +140,7 @@ def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
             terminals_arr[:] = done.ravel()
             truncated_arr[:] = truncated.ravel()
 
-        send_pipe.send(info)
+        send_pipe.send_bytes(msgpack.dumps(info))
 
 def recv(state):
     recv_precheck(state)
@@ -150,7 +154,7 @@ def recv(state):
                 env_id = state.recv_pipes.index(response_pipe)
 
                 if response_pipe.poll():  # Check if data is available
-                    info = response_pipe.recv()
+                    info = msgpack.loads(response_pipe.recv_bytes())
                     o, r, d, t = _unpack_shared_mem(
                         state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
                     o = o.reshape(
@@ -165,7 +169,7 @@ def recv(state):
     else:
         for env_id in range(state.workers_per_batch):
             response_pipe = state.recv_pipes[env_id]
-            info = response_pipe.recv()
+            info = msgpack.loads(response_pipe.recv_bytes())
             o, r, d, t = _unpack_shared_mem(
                 state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
             o = o.reshape(
@@ -183,16 +187,16 @@ def send(state, actions):
     actions = split_actions(state, actions)
     assert len(actions) == state.workers_per_batch
     for i, atns in zip(state.prev_env_id, actions):
-        state.send_pipes[i].send(("step", [atns], {}))
+        state.send_pipes[i].send_bytes(msgpack.dumps(("step", [atns.tolist()], {})))
 
 def async_reset(state, seed=None):
     reset_precheck(state)
     if seed is None:
         for pipe in state.send_pipes:
-            pipe.send(("reset", [], {}))
+            pipe.send_bytes(msgpack.dumps(("reset", [], {})))
     else:
         for idx, pipe in enumerate(state.send_pipes):
-            pipe.send(("reset", [], {"seed": seed+idx}))
+            pipe.send_bytes(msgpack.dumps(("reset", [], {"seed": seed+idx})))
 
 def reset(state, seed=None):
     async_reset(state)
@@ -238,7 +242,7 @@ def get(state, *args, **kwargs):
 
 def close(state):
     for pipe in state.send_pipes:
-        pipe.send(("close", [], {}))
+        pipe.send_bytes(msgpack.dumps(("close", [], {})))
 
     for p in state.processes:
         p.terminate()
