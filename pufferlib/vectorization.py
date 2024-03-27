@@ -5,6 +5,7 @@ import gymnasium
 from itertools import chain
 import psutil
 import time
+from enum import Enum
 
 
 from pufferlib import namespace
@@ -17,6 +18,13 @@ import pufferlib.spaces
 RESET = 0
 SEND = 1
 RECV = 2
+
+# Fewer characters means fewer bytes to send over the pipe
+class EnvProtocol(Enum):
+    STEP = b"s"
+    RESET = b"r"
+    RESET_NONE = b"n"
+    CLOSE = b"c"
 
 space_error_msg = 'env {env} must be an instance of GymnasiumPufferEnv or PettingZooPufferEnv'
 
@@ -241,7 +249,8 @@ def _unpack_shared_mem(shared_mem, n):
 
 def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
         agents_per_env, envs_per_worker,
-        worker_idx, shared_mem, send_pipe, recv_pipe):
+        worker_idx, shared_mem, step_shared_mem, reset_shared_mem, send_pipe, recv_pipe,
+        action_size, action_dtype):
     
     # I don't know if this helps. Sometimes it does, sometimes not.
     # Need to run more comprehensive tests
@@ -253,13 +262,24 @@ def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
         shared_mem, agents_per_env * envs_per_worker)
 
     while True:
-        request, args, kwargs = recv_pipe.recv()
-        func = getattr(envs, request)
-        response = func(*args, **kwargs)
+        request = recv_pipe.recv_bytes()
+        if request == EnvProtocol.STEP.value:
+            response = envs.step(
+                np.frombuffer(bytes(step_shared_mem[:]), dtype=action_dtype)
+                .reshape((1, action_size))
+            )
+        elif request == EnvProtocol.RESET_NONE.value:
+            response = envs.reset()
+        elif request == EnvProtocol.RESET.value:
+            response = envs.reset(reset_shared_mem[0])
+        elif request == EnvProtocol.CLOSE.value:
+            response = envs.close()
+        else:
+            raise ValueError(f"method {request} is not supported")
         info = {}
 
         # TODO: Handle put/get
-        if request in 'step reset'.split():
+        if request in [EnvProtocol.STEP.value, EnvProtocol.RESET.value, EnvProtocol.RESET_NONE.value]:
             obs, reward, done, truncated, info = response
 
             # TESTED: There is no overhead associated with 4 assignments to shared memory
@@ -269,6 +289,7 @@ def _worker_process(multi_env_cls, env_creator, env_args, env_kwargs,
             terminals_arr[:] = done.ravel()
             truncated_arr[:] = truncated.ravel()
 
+        # TODO: Find a way to use send_bytes instead to avoid pickle. 
         send_pipe.send(info)
 
 
@@ -303,12 +324,20 @@ class Multiprocessing:
         agents_per_worker = agents_per_env * envs_per_worker
         observation_size = int(np.prod(_single_observation_space(driver_env).shape))
         observation_dtype = _single_observation_space(driver_env).dtype
+        action_size = int(np.prod(_single_action_space(driver_env).shape))
+        action_dtype = _single_action_space(driver_env).dtype
 
         # Shared memory for obs, rewards, terminals, truncateds
         from multiprocessing import Process, Manager, Pipe, Array
         shared_mem = [
             Array('d', agents_per_worker*(3+observation_size))
             for _ in range(num_workers)
+        ]
+        self.step_shared_mem = [
+            Array('B', agents_per_worker * action_size * np.array(1, dtype=action_dtype).nbytes) for _ in range(num_workers)
+        ]
+        self.reset_shared_mem = [
+            Array('I', 1) for _ in range(num_workers)
         ]
         main_send_pipes, work_recv_pipes = zip(*[Pipe() for _ in range(num_workers)])
         work_send_pipes, main_recv_pipes = zip(*[Pipe() for _ in range(num_workers)])
@@ -319,7 +348,8 @@ class Multiprocessing:
             args=(multi_env_cls, env_creator, env_args, env_kwargs,
                   agents_per_env, envs_per_worker,
                   i%(num_cores-1), shared_mem[i],
-                  work_send_pipes[i], work_recv_pipes[i])
+                  self.step_shared_mem[i], self.reset_shared_mem[i],
+                  work_send_pipes[i], work_recv_pipes[i], action_size, action_dtype)
             ) for i in range(num_workers)
         ]
 
@@ -396,17 +426,20 @@ class Multiprocessing:
     def send(self, actions):
         send_precheck(self)
         actions = split_actions(self, actions)
+        assert len(actions) == self.workers_per_batch
         for i, atns in zip(self.prev_env_id, actions):
-            self.send_pipes[i].send(("step", [atns], {}))
+            self.step_shared_mem[i][:] = atns.tobytes()
+            self.send_pipes[i].send_bytes(EnvProtocol.STEP.value)
 
     def async_reset(self, seed=None):
         reset_precheck(self)
         if seed is None:
             for pipe in self.send_pipes:
-                pipe.send(("reset", [], {}))
+                pipe.send_bytes(EnvProtocol.RESET_NONE.value)
         else:
             for idx, pipe in enumerate(self.send_pipes):
-                pipe.send(("reset", [], {"seed": seed+idx}))
+                self.reset_shared_mem[idx][0] = seed + idx
+                pipe.send_bytes(EnvProtocol.RESET.value)
 
     def put(self, *args, **kwargs):
         # TODO: Update this
@@ -435,7 +468,7 @@ class Multiprocessing:
 
     def close(self):
         for pipe in self.send_pipes:
-            pipe.send(("close", [], {}))
+            pipe.send_bytes(EnvProtocol.CLOSE.value)
 
         for p in self.processes:
             p.terminate()
