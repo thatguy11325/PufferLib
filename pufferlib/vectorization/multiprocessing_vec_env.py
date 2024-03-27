@@ -154,7 +154,7 @@ def recv(state):
                 env_id = state.recv_pipes.index(response_pipe)
 
                 if response_pipe.poll():  # Check if data is available
-                    info = msgpack.loads(response_pipe.recv_bytes())
+                    info = msgpack.loads(response_pipe.recv_bytes(), strict_map_key=False)
                     o, r, d, t = _unpack_shared_mem(
                         state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
                     o = o.reshape(
@@ -169,7 +169,7 @@ def recv(state):
     else:
         for env_id in range(state.workers_per_batch):
             response_pipe = state.recv_pipes[env_id]
-            info = msgpack.loads(response_pipe.recv_bytes())
+            info = msgpack.loads(response_pipe.recv_bytes(), strict_map_key=False)
             o, r, d, t = _unpack_shared_mem(
                 state.shared_mem[env_id], state.agents_per_env * state.envs_per_worker)
             o = o.reshape(
