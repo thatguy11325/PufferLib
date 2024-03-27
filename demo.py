@@ -37,7 +37,7 @@ def load_from_config(env):
         combined_config[key] = {**defaults[key], **pkg_subconfig, **env_subconfig}
 
     return pkg, pufferlib.namespace(**combined_config)
-   
+
 def make_policy(env, env_module, args):
     policy = env_module.Policy(env, **args.policy)
     if args.force_recurrence or env_module.Recurrent is not None:
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb-entity', type=str, default='jsuarez', help='WandB entity')
     parser.add_argument('--wandb-project', type=str, default='pufferlib', help='WandB project')
     parser.add_argument('--wandb-group', type=str, default='debug', help='WandB group')
-    parser.add_argument('--track', action='store_true', help='Track on WandB')
+    parser.add_argument('--track', action='store_true', default=False, help='Track on WandB')
     parser.add_argument('--force-recurrence', action='store_true', help='Force model to be recurrent, regardless of defaults')
 
     clean_parser = argparse.ArgumentParser(parents=[parser])
@@ -218,18 +218,19 @@ if __name__ == '__main__':
     elif args.track:
         args.exp_name = init_wandb(args, env_module).id
     elif args.baseline:
-        args.track = True
+        # args.track = True
+        args.track = False
         version = '.'.join(pufferlib.__version__.split('.')[:2])
         args.exp_name = f'puf-{version}-{args.config}'
         args.wandb_group = f'puf-{version}-baseline'
         shutil.rmtree(f'experiments/{args.exp_name}', ignore_errors=True)
-        run = init_wandb(args, env_module, name=args.exp_name, resume=False)
+        # run = init_wandb(args, env_module, name=args.exp_name, resume=False)
         if args.mode == 'evaluate':
             model_name = f'puf-{version}-{args.config}_model:latest'
-            artifact = run.use_artifact(model_name)
-            data_dir = artifact.download()
-            model_file = max(os.listdir(data_dir))
-            args.eval_model_path = os.path.join(data_dir, model_file)
+            # artifact = run.use_artifact(model_name)
+            # data_dir = artifact.download()
+            # model_file = max(os.listdir(data_dir))
+            # args.eval_model_path = os.path.join(data_dir, model_file)
 
     if args.mode == 'train':
         train(args, env_module, make_env)
