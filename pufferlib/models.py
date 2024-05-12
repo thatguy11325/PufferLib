@@ -172,7 +172,10 @@ class Default(Policy):
         linear layers to decode actions. The value function is a single linear layer.
         '''
         super().__init__(env)
-        self.encoder = nn.Linear(np.prod(self.observation_space.shape), hidden_size)
+        self.dtype = pufferlib.pytorch.nativize_dtype(
+            env.emulated.observation_dtype, env.emulated.emulated_observation_dtype
+        )
+        self.encoder = nn.Linear(pufferlib.pytorch.flattened_tensor_size(self.dtype), hidden_size)
         if self.is_multidiscrete:
             self.decoder = nn.ModuleList([
                 pufferlib.pytorch.layer_init(nn.Linear(hidden_size, n), std=0.01)
@@ -192,7 +195,12 @@ class Default(Policy):
     def encode_observations(self, observations):
         batch_size = observations.shape[0]
         observations = observations.view(batch_size, -1)
-        return torch.relu(self.encoder(observations.float())), None
+        observations = pufferlib.pytorch.nativize_tensor(observations, self.dtype)
+        observations = torch.cat(
+            tuple(v.reshape(batch_size, -1).float() for v in observations.values()),
+            dim=-1
+        )
+        return torch.relu(self.encoder(observations)), None
 
     def decode_actions(self, hidden, lookup, concat=True):
         '''Concatenated linear decoder function'''
