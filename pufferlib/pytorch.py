@@ -19,8 +19,6 @@ numpy_to_torch_dtype_dict = {
     np.dtype("uint8"): torch.uint8,
 }
 
-torch._dynamo.config.capture_scalar_outputs = True
-
 
 def nativize_dtype(sample_dtype: np.dtype, structured_dtype: np.dtype):
     return _nativize_dtype(sample_dtype, structured_dtype)
