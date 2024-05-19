@@ -22,6 +22,15 @@ def entropy(logits):
     p_log_p = logits * logits_to_probs(logits)
     return -p_log_p.sum(-1)
 
+# A stripped down version of
+# https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/Distributions.cpp#L618
+# Does not perform torch checks
+# Should work better with torch.compile
+# Assumes the num_samples=1 code path
+def multinomial(input_: torch.Tensor) -> torch.Tensor:
+    q = torch.zeros_like(input_).exponential_(1) / input_
+    return q.argmax(dim=-1, keepdim=True)
+
 def sample_logits(logits: Union[torch.Tensor, List[torch.Tensor]], action=None):
     is_discrete = isinstance(logits, torch.Tensor)
     if is_discrete:
@@ -32,7 +41,8 @@ def sample_logits(logits: Union[torch.Tensor, List[torch.Tensor]], action=None):
 
 
     if action is None:
-        action = torch.stack([torch.multinomial(logits_to_probs(l), 1).squeeze() for l in logits])
+
+        action = torch.stack([multinomial(logits_to_probs(l)).squeeze() for l in logits])
     else:
         batch = logits[0].shape[0]
         action = action.view(batch, -1).T
