@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 import pufferlib.models
 import pufferlib.pytorch
+from pufferlib.emulation import GymnasiumPufferEnv
 
 
 class Recurrent(pufferlib.models.LSTMWrapper):
@@ -14,7 +15,7 @@ class Recurrent(pufferlib.models.LSTMWrapper):
 
 class Policy(nn.Module):
     '''Default NetHack Learning Environment policy ported from the nle release'''
-    def __init__(self, env, *args,
+    def __init__(self, env: GymnasiumPufferEnv, *args,
             embedding_dim=32, crop_dim=9, num_layers=5,
             **kwargs):
         super().__init__()

@@ -245,6 +245,7 @@ setup(
         'cleanrl': cleanrl,
         'common': common,
         **environments,
+        'test': ['numpy', 'pytest', 'torch']
     },
     ext_modules = cythonize("pufferlib/extensions.pyx"),
     include_dirs=[numpy.get_include()],
@@ -270,6 +271,6 @@ setup(
 #'git+https://github.com/oxwhirl/smac.git',
 
 #curl -L -o smac.zip https://blzdistsc2-a.akamaihd.net/Linux/SC2.4.10.zip
-#unzip -P iagreetotheeula smac.zip 
+#unzip -P iagreetotheeula smac.zip
 #curl -L -o maps.zip https://github.com/oxwhirl/smac/releases/download/v0.1-beta1/SMAC_Maps.zip
 #unzip maps.zip && mv SMAC_Maps/ StarCraftII/Maps/

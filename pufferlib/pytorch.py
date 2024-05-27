@@ -1,14 +1,12 @@
-import math
-from pdb import set_trace as T
-import numpy as np
-import pickle
-import os
 import sys
+from typing import Dict, List, Tuple, Union
 
+import numpy as np
 import torch
 from torch import nn
 
-from pufferlib.frameworks import cleanrl
+import pufferlib
+
 
 numpy_to_torch_dtype_dict = {
     np.dtype("float64"): torch.float64,
@@ -34,19 +32,27 @@ LITTLE_BYTE_ORDER = sys.byteorder == "little"
 # One exception: make sure you didn't change the dtype of your data
 # ie by doing torch.Tensor(data) instead of torch.from_numpy(data)
 
+NativeDTypeValue = Tuple[torch.dtype, List[int], int, int]
+NativeDType = Union[NativeDTypeValue, Dict[str, Union[NativeDTypeValue, "NativeDType"]]]
+
+
 # TODO: handle discrete obs
 # Spend some time trying to break this fn with differnt obs
-def nativize_dtype(emulated):
+def nativize_dtype(emulated: pufferlib.namespace) -> NativeDType:
+    # sample dtype - the dtype of what we obtain from the environment (usually bytes)
     sample_dtype: np.dtype = emulated.observation_dtype
+    # structured dtype - the gym.Space converted numpy dtype
+    # the observation represents (could be dict, tuple, box, etc.)
     structured_dtype: np.dtype = emulated.emulated_observation_dtype
     returns = _nativize_dtype(sample_dtype, structured_dtype)
     if isinstance(returns[0], dict):
         return returns[0]
     return returns
 
+
 def _nativize_dtype(
     sample_dtype: np.dtype, structured_dtype: np.dtype, offset: int = 0
-):
+) -> NativeDType:
     if structured_dtype.fields is None:
         if structured_dtype.subdtype is not None:
             dtype, shape = structured_dtype.subdtype
@@ -55,7 +61,7 @@ def _nativize_dtype(
             shape = (1,)
 
         delta = int(np.prod(shape) * dtype.itemsize // sample_dtype.itemsize)
-        return (numpy_to_torch_dtype_dict[dtype], shape, delta, delta+offset)
+        return (numpy_to_torch_dtype_dict[dtype], shape, delta, delta + offset)
     else:
         subviews = {}
         for name, (dtype, _) in structured_dtype.fields.items():
@@ -74,9 +80,8 @@ def _nativize_dtype(
 @torch.compile(fullgraph=True)
 def nativize_tensor(
     observation: torch.Tensor,
-    native_dtype: tuple[torch.dtype, tuple[int], int, int]
-    | dict[str, tuple[torch.dtype, tuple[int], int, int]],
-):
+    native_dtype: NativeDType,
+) -> torch.Tensor | dict[str, torch.Tensor]:
     return _nativize_tensor(observation, native_dtype)
 
 
@@ -85,7 +90,7 @@ def nativize_tensor(
 # @thatguy - can you figure out a more robust way to handle cast?
 # I think it may screw up for non-uint data... so I put a hard .view
 # fallback that breaks compile
-def compilable_cast(u8, dtype): 
+def compilable_cast(u8, dtype):
     if dtype in (torch.uint8, torch.uint16, torch.uint32, torch.uint64):
         n = dtype.itemsize
         bytes = [u8[..., i::n].to(dtype) for i in range(n)]
@@ -94,7 +99,8 @@ def compilable_cast(u8, dtype):
 
         bytes = sum(bytes[i] << (i * 8) for i in range(n))
         return bytes.view(dtype)
-    return u8.view(dtype) # breaking cast
+    return u8.view(dtype)  # breaking cast
+
 
 def _nativize_tensor(
     observation: torch.Tensor,
