@@ -32,6 +32,11 @@ LITTLE_BYTE_ORDER = sys.byteorder == "little"
 # One exception: make sure you didn't change the dtype of your data
 # ie by doing torch.Tensor(data) instead of torch.from_numpy(data)
 
+# dtype of the tensor
+# shape of the tensor
+# starting element of the observation
+# number of elements of the observation to take
+# could be a namedtuple or dataclass
 NativeDTypeValue = Tuple[torch.dtype, List[int], int, int]
 NativeDType = Union[NativeDTypeValue, Dict[str, Union[NativeDTypeValue, "NativeDType"]]]
 
@@ -42,12 +47,10 @@ def nativize_dtype(emulated: pufferlib.namespace) -> NativeDType:
     # sample dtype - the dtype of what we obtain from the environment (usually bytes)
     sample_dtype: np.dtype = emulated.observation_dtype
     # structured dtype - the gym.Space converted numpy dtype
+
     # the observation represents (could be dict, tuple, box, etc.)
     structured_dtype: np.dtype = emulated.emulated_observation_dtype
-    returns = _nativize_dtype(sample_dtype, structured_dtype)
-    if isinstance(returns[0], dict):
-        return returns[0]
-    return returns
+    return _nativize_dtype(sample_dtype, structured_dtype)
 
 
 def _nativize_dtype(
@@ -60,24 +63,23 @@ def _nativize_dtype(
             dtype = structured_dtype
             shape = (1,)
 
-        delta = int(np.prod(shape) * dtype.itemsize // sample_dtype.itemsize)
-        return (numpy_to_torch_dtype_dict[dtype], shape, delta, delta + offset)
+        delta = int((np.prod(shape) * dtype.itemsize) // sample_dtype.base.itemsize)
+        return (numpy_to_torch_dtype_dict[dtype], shape, offset, delta)
     else:
         subviews = {}
         for name, (dtype, _) in structured_dtype.fields.items():
-            align = dtype.alignment
-            offset = int((align * np.ceil(offset / align)).astype(np.int32))
             returns = _nativize_dtype(sample_dtype, dtype, offset)
-            if isinstance(returns[0], dict):
-                subviews[name], offset = returns
-            else:
-                torch_dtype, shape, delta, new_offset = returns
-                subviews[name] = (torch_dtype, shape, delta, offset)
-                offset = new_offset
+            subviews[name] = returns
+            # this offset is to account for the number of bytes we need to move
+            # the buffer forward due to alignment
+            offset += int(
+                structured_dtype.alignment
+                * np.ceil(dtype.itemsize / structured_dtype.alignment).astype(np.int32)
+            )
 
-        return subviews, offset
+        return subviews
 
-@torch.compile(fullgraph=True)
+
 def nativize_tensor(
     observation: torch.Tensor,
     native_dtype: NativeDType,
@@ -103,18 +105,18 @@ def compilable_cast(u8, dtype):
 
 
 def _nativize_tensor(
-    observation: torch.Tensor,
-    native_dtype: tuple[torch.dtype, tuple[int], int, int]
-    | dict[str, tuple[torch.dtype, tuple[int], int, int]],
+    observation: torch.Tensor, native_dtype: NativeDType
 ) -> torch.Tensor | dict[str, torch.Tensor]:
     if isinstance(native_dtype, tuple):
-        dtype, shape, delta, offset = native_dtype
+        dtype, shape, offset, delta = native_dtype
         torch._check_is_size(offset)
         torch._check_is_size(delta)
-        # torch._check(observation.size(1) >= offset + delta)
+        # Important, we are assuming that obervations of shape
+        # [N, D] where N is number of examples and D is number of
+        # bytes per example is being passed in
         slice = observation.narrow(1, offset, delta)
         # slice = slice.contiguous()
-        #slice = compilable_cast(slice, dtype)
+        # slice = compilable_cast(slice, dtype)
         slice = slice.view(dtype)
         slice = slice.view(observation.shape[0], *shape)
         return slice
