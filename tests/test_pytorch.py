@@ -131,6 +131,17 @@ def test_nativize_dtype(
                 ),
             }
         ),
+        gym.spaces.Dict(
+            {
+                "xx": gym.spaces.Box(-1.0, 1.0, (1, 2), dtype=np.float32),
+                "yy": gym.spaces.Box(-1.0, 1.0, (4, 5), dtype=np.float32),
+            }
+        ),
+        gym.spaces.Dict(
+            {
+                "screen": gym.spaces.Box(0, 255, (18, 20), dtype=np.uint8),
+            }
+        ),
     ],
 )
 def test_nativize_tensor(space: gym.spaces.Space):
