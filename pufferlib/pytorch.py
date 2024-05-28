@@ -75,6 +75,7 @@ def _nativize_dtype(
             offset += int(
                 structured_dtype.alignment
                 * np.ceil(dtype.itemsize / structured_dtype.alignment).astype(np.int32)
+                // sample_dtype.base.itemsize
             )
 
         return subviews

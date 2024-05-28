@@ -62,6 +62,23 @@ from pufferlib.pytorch import NativeDType, nativize_dtype, nativize_tensor
             },
         ),
         (
+            np.dtype((np.float32, (4,)), align=True),
+            np.dtype(
+                [
+                    ("foo", np.float32, (1,)),
+                    ("bar", [("a", np.float32, (2,)), ("b", np.float32, (1,))]),
+                ],
+                align=True,
+            ),
+            {
+                "foo": (torch.float32, (1,), 0, 1),
+                "bar": {
+                    "a": (torch.float32, (2,), 1, 2),
+                    "b": (torch.float32, (1,), 3, 1),
+                },
+            },
+        ),
+        (
             np.dtype((np.uint8, (16,)), align=True),
             np.dtype(
                 [
@@ -118,40 +135,49 @@ def test_nativize_dtype(
 
 
 @pytest.mark.parametrize(
-    "space",
+    "space,sample_dtype",
     [
-        gym.spaces.Dict(
-            {
-                "x": gym.spaces.Box(-1.0, 1.0, (1, 2), dtype=np.float32),
-                "y": gym.spaces.Dict(
-                    {
-                        "a": gym.spaces.Box(0, 255, (7, 7), dtype=np.uint8),
-                        "b": gym.spaces.Box(-1024, 1024, (2, 3), dtype=np.int32),
-                    }
-                ),
-            }
+        (
+            gym.spaces.Dict(
+                {
+                    "x": gym.spaces.Box(-1.0, 1.0, (1, 2), dtype=np.float32),
+                    "y": gym.spaces.Dict(
+                        {
+                            "a": gym.spaces.Box(0, 255, (7, 7), dtype=np.uint8),
+                            "b": gym.spaces.Box(-1024, 1024, (2, 3), dtype=np.int32),
+                        }
+                    ),
+                }
+            ),
+            np.dtype(np.uint8),
         ),
-        gym.spaces.Dict(
-            {
-                "xx": gym.spaces.Box(-1.0, 1.0, (1, 2), dtype=np.float32),
-                "yy": gym.spaces.Box(-1.0, 1.0, (4, 5), dtype=np.float32),
-            }
+        (
+            gym.spaces.Dict(
+                {
+                    "xx": gym.spaces.Box(-1.0, 1.0, (1, 2), dtype=np.float32),
+                    "yy": gym.spaces.Box(-1.0, 1.0, (4, 5), dtype=np.float32),
+                }
+            ),
+            np.dtype(np.float32),
         ),
-        gym.spaces.Dict(
-            {
-                "screen": gym.spaces.Box(0, 255, (18, 20), dtype=np.uint8),
-            }
+        (
+            gym.spaces.Dict(
+                {
+                    "screen": gym.spaces.Box(0, 255, (18, 20), dtype=np.uint8),
+                }
+            ),
+            np.dtype(np.uint8),
         ),
     ],
 )
-def test_nativize_tensor(space: gym.spaces.Space):
+def test_nativize_tensor(space: gym.spaces.Space, sample_dtype: np.dtype):
     emulated_dtype = pufferlib.emulation.dtype_from_space(space)
     observation_space, observation_dtype = (
         pufferlib.emulation.emulate_observation_space(space)
     )
     native_dtype = nativize_dtype(
         pufferlib.namespace(
-            observation_dtype=np.dtype(np.uint8),
+            observation_dtype=sample_dtype,
             emulated_observation_dtype=emulated_dtype,
         )
     )
