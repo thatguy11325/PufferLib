@@ -578,6 +578,18 @@ pokedebug:
     batch_size: 2048
     minibatch_size: 256
     compile: True
+
+rubiks:
+  package: rubiks
+  env_name: rubiks
+  train:
+    num_envs: 96
+    env_batch_size: 24
+    num_workers: 32
+    zero_copy: False
+    batch_size: 16384
+    minibatch_size: 4096
+    compile: True
  
 links_awaken:
   package: links_awaken
