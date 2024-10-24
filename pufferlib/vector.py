@@ -424,6 +424,8 @@ class Multiprocessing:
             sem = self.buf.semaphores[worker]
             if sem >= MAIN:
                 self.ready_workers.append(worker)
+                if sem == INFO:
+                    self.recv_pipes[worker].recv()
             else:
                 self.waiting_workers.append(worker)
 
