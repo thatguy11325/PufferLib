@@ -324,23 +324,28 @@ class PuffeRL:
         anneal_beta = b0 + (1 - b0)*a*self.epoch/self.total_epochs
         self.ratio[:] = 1
 
+        # shape = self.values.shape
+        r_std, r_mean = self.rewards.std_mean(axis=1)
+        advantages = (self.rewards - r_mean) / r_std # [ segments ]
+
         for mb in range(self.total_minibatches):
             profile('train_misc', epoch, nest=True)
             self.amp_context.__enter__()
 
-            shape = self.values.shape
-            advantages = torch.zeros(shape, device=device)
-            advantages = compute_puff_advantage(self.values, self.rewards,
-                self.terminals, self.ratio, advantages, config['gamma'],
-                config['gae_lambda'], config['vtrace_rho_clip'], config['vtrace_c_clip'])
+            
+            # shape = self.values.shape # [segments, horizon]
+            # advantages = torch.zeros(shape, device=device)
+            # advantages = compute_puff_advantage(self.values, self.rewards,
+            #     self.terminals, self.ratio, advantages, config['gamma'],
+            #     config['gae_lambda'], config['vtrace_rho_clip'], config['vtrace_c_clip'])
 
             profile('train_copy', epoch)
-            adv = advantages.abs().sum(axis=1)
-            prio_weights = torch.nan_to_num(adv**a, 0, 0, 0)
-            prio_probs = (prio_weights + 1e-6)/(prio_weights.sum() + 1e-6)
-            idx = torch.multinomial(prio_probs, self.minibatch_segments)
+            adv = advantages.abs().sum(axis=1) # [segments]
+            prio_weights = torch.nan_to_num(adv**a, 0, 0, 0) # [segments]
+            prio_probs = (prio_weights + 1e-6)/(prio_weights.sum() + 1e-6) # [segments]
+            idx = torch.multinomial(prio_probs, self.minibatch_segments) # [mb_segments]
             mb_prio = (self.segments*prio_probs[idx, None])**-anneal_beta
-            mb_obs = self.observations[idx]
+            mb_obs = self.observations[idx] # [mb_segments, horizon, *obs_space.shape]
             mb_actions = self.actions[idx]
             mb_logprobs = self.logprobs[idx]
             mb_rewards = self.rewards[idx]
@@ -361,12 +366,14 @@ class PuffeRL:
                 lstm_c=None,
             )
 
+            # logits - [segments, *action_space.shape]
             logits, newvalue = self.policy(mb_obs, state)
             actions, newlogprob, entropy = pufferlib.pytorch.sample_logits(logits, action=mb_actions)
 
             profile('train_misc', epoch)
-            newlogprob = newlogprob.reshape(mb_logprobs.shape)
+            newlogprob = newlogprob.reshape(mb_logprobs.shape) # [mb_segments, horizon] 
             logratio = newlogprob - mb_logprobs
+            logratio = logratio.mean(axis=1)
             ratio = logratio.exp()
             self.ratio[idx] = ratio.detach()
 
@@ -375,15 +382,15 @@ class PuffeRL:
                 approx_kl = ((ratio - 1) - logratio).mean()
                 clipfrac = ((ratio - 1.0).abs() > config['clip_coef']).float().mean()
 
-            adv = advantages[idx]
-            adv = compute_puff_advantage(mb_values, mb_rewards, mb_terminals,
-                ratio, adv, config['gamma'], config['gae_lambda'],
-                config['vtrace_rho_clip'], config['vtrace_c_clip'])
+            # adv = advantages[idx]
+            # adv = compute_puff_advantage(mb_values, mb_rewards, mb_terminals,
+            #     ratio, adv, config['gamma'], config['gae_lambda'],
+            #     config['vtrace_rho_clip'], config['vtrace_c_clip'])
             adv = mb_advantages
-            adv = mb_prio * (adv - adv.mean()) / (adv.std() + 1e-8)
+            # adv = mb_prio * (adv - adv.mean()) / (adv.std() + 1e-8)
 
             # Losses
-            pg_loss1 = -adv * ratio
+            pg_loss1 = adv * ratio
             pg_loss2 = -adv * torch.clamp(ratio, 1 - clip_coef, 1 + clip_coef)
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
