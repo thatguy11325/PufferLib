@@ -325,7 +325,7 @@ class PuffeRL:
         self.ratio[:] = 1
 
         # shape = self.values.shape
-        r_std, r_mean = self.rewards.std_mean(axis=1)
+        r_std, r_mean = torch.std_mean(self.rewards, dim=1, keepdim=True)
         advantages = (self.rewards - r_mean) / r_std # [ segments ]
 
         for mb in range(self.total_minibatches):
@@ -373,7 +373,7 @@ class PuffeRL:
             profile('train_misc', epoch)
             newlogprob = newlogprob.reshape(mb_logprobs.shape) # [mb_segments, horizon] 
             logratio = newlogprob - mb_logprobs
-            logratio = logratio.mean(axis=1)
+            logratio = logratio.mean(dim=1, keep_dim=True)
             ratio = logratio.exp()
             self.ratio[idx] = ratio.detach()
 
