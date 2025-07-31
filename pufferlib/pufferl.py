@@ -390,7 +390,7 @@ class PuffeRL:
             # adv = mb_prio * (adv - adv.mean()) / (adv.std() + 1e-8)
 
             # Losses
-            pg_loss1 = adv * ratio
+            pg_loss1 = -adv * ratio
             pg_loss2 = -adv * torch.clamp(ratio, 1 - clip_coef, 1 + clip_coef)
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
