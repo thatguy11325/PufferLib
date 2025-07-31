@@ -373,7 +373,7 @@ class PuffeRL:
             profile('train_misc', epoch)
             newlogprob = newlogprob.reshape(mb_logprobs.shape) # [mb_segments, horizon] 
             logratio = newlogprob - mb_logprobs
-            logratio = logratio.mean(dim=1, keep_dim=True)
+            logratio = logratio.mean(dim=1, keepdim=True)
             ratio = logratio.exp()
             self.ratio[idx] = ratio.detach()
 
